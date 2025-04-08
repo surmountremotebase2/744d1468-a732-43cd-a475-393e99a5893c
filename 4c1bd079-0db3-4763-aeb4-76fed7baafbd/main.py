@@ -1,34 +1,28 @@
 # Import necessary components from Surmount
-from surmount.base_class import Strategy, TargetAllocation # Correct base class import
-from surmount.technical_indicators import EMA, VWAP       # Correct indicator import location
+from surmount.base_class import Strategy, TargetAllocation
+from surmount.technical_indicators import EMA, VWAP
 from surmount.logging import log
 
 # Define the strategy class
 class TradingStrategy(Strategy):
-    def __init__(self): 
-        # Define the assets to trade
-        self.tickers = ["SPY"] # Example: Use SPY ETF (ensure it's a list)
+    def __init__(self):
+        self.tickers = ["SPY"] # Define the assets to trade
         log("Strategy Initialized.")
 
     @property
     def interval(self):
-        # Use a 5-minute timeframe - CORRECTED STRING
-        return "5min" # <--- CORRECTED
+        # Use a 5-minute timeframe
+        return "5min" # Corrected interval string
 
     @property
     def assets(self):
-        # Return the list of assets
         return self.tickers
 
     @property
     def data(self):
-        # No additional data streams needed beyond OHLCV
         return []
 
     def run(self, data):
-        """
-        Executes the strategy logic for each data point.
-        """
         allocation_dict = {}
 
         for ticker in self.tickers:
@@ -43,14 +37,13 @@ class TradingStrategy(Strategy):
                 log(f"Warning: Unexpected data structure for ohlcv for {ticker}. Type: {type(ohlcv_data_source)}")
 
             # --- Data Sufficiency Check ---
-            if ohlcv is None or len(ohlcv) < 50: # Need ~50 bars for safety buffer
+            if ohlcv is None or len(ohlcv) < 50:
                 log(f"Not enough data or failed to retrieve OHLCV for {ticker} (need ~50 bars)")
                 allocation_dict[ticker] = 0
                 continue
 
-            # --- Calculate Indicators ---
+            # --- Calculate Indicators & Price ---
             historical_data = ohlcv
-
             ema9_val, ema20_val, vwap_val = None, None, None
             current_close = None
 
@@ -58,15 +51,15 @@ class TradingStrategy(Strategy):
                 # Call indicators directly as functions
                 ema9_raw = EMA(ticker=ticker, data=historical_data, length=9)
                 ema20_raw = EMA(ticker=ticker, data=historical_data, length=20)
-                # Add 'length' argument to VWAP call based on error message
-                vwap_raw = VWAP(ticker=ticker, data=historical_data, length=1) # <--- ADDED length=1
+                vwap_raw = VWAP(ticker=ticker, data=historical_data, length=1) # Added length=1
 
                 # Extract the latest value
                 ema9_val = ema9_raw[-1] if isinstance(ema9_raw, list) and ema9_raw else ema9_raw if isinstance(ema9_raw, (int,float)) else None
                 ema20_val = ema20_raw[-1] if isinstance(ema20_raw, list) and ema20_raw else ema20_raw if isinstance(ema20_raw, (int,float)) else None
                 vwap_val = vwap_raw[-1] if isinstance(vwap_raw, list) and vwap_raw else vwap_raw if isinstance(vwap_raw, (int,float)) else None
 
-                current_close = historical_data[-1]["close"]
+                # Get the most recent closing price using capitalized "Close"
+                current_close = historical_data[-1]["Close"] # <--- CORRECTED KEY ("Close")
 
             except Exception as e:
                 log(f"Error during indicator calculation or processing for {ticker}: {e}")
