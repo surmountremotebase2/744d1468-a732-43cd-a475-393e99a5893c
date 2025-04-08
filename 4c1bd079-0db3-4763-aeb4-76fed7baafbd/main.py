@@ -15,7 +15,7 @@ class TradingStrategy(Strategy):
     def interval(self):
         # Use a 5-minute timeframe (as "2m" caused KeyError)
         # Ensure this interval is supported by Surmount documentation/platform
-        return "5m"
+        return "5min"
 
     @property
     def assets(self):
