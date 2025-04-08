@@ -5,7 +5,7 @@ from surmount.logging import log
 
 # Define the strategy class
 class TradingStrategy(Strategy):
-    def __init__(self):
+    def __init__(self): 
         # Define the assets to trade
         self.tickers = ["SPY"] # Example: Use SPY ETF (ensure it's a list)
         log("Strategy Initialized.")
