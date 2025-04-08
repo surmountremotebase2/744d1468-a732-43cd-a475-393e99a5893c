@@ -15,7 +15,7 @@ class TradingStrategy(Strategy):
     @property
     def interval(self):
         # Use a 2-minute timeframe
-        return "2m"
+        return "5min"
 
     @property
     def assets(self):
