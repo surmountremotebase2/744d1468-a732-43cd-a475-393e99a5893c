@@ -34,111 +34,57 @@ class TradingStrategy(Strategy):
         allocation_dict = {}
 
         for ticker in self.tickers:
-            # Get OHLCV data for the ticker
-            ohlcv = data["ohlcv"].get(ticker)
+            # --- CORRECTED OHLCV DATA RETRIEVAL ---
+            ohlcv_data_source = data.get("ohlcv") # Use .get on the main data dict
 
-            # Ensure we have enough data points
-            # EMA might need length + ~length points to be stable? Use 50 for safety.
+            ohlcv = None # Initialize ohlcv to None
+            if isinstance(ohlcv_data_source, dict):
+                # If it's a dictionary, get data by ticker key
+                ohlcv = ohlcv_data_source.get(ticker)
+            elif isinstance(ohlcv_data_source, list) and len(self.assets) == 1:
+                # If it's a list AND we only requested one asset, assume the list is the data
+                ohlcv = ohlcv_data_source
+            else:
+                # Log unexpected structure if necessary
+                log(f"Warning: Unexpected data structure for ohlcv. Type: {type(ohlcv_data_source)}")
+            # --- END OF CORRECTION ---
+
+            # Ensure we have enough data points (and ohlcv was successfully retrieved)
             if ohlcv is None or len(ohlcv) < 50:
-                log(f"Not enough data for {ticker} (need ~50 bars)")
+                log(f"Not enough data or failed to retrieve OHLCV for {ticker} (need ~50 bars)")
+                # Ensure allocation is 0 if we can't process data
                 allocation_dict[ticker] = 0
-                continue
+                continue # Skip to next ticker
 
             # Prepare data slice (use sufficient history)
-            historical_data = ohlcv # Pass the full available slice for calculation
+            historical_data = ohlcv # Pass the retrieved ohlcv list
 
+            # ... (rest of your indicator calculation and trading logic) ...
             try:
                 # Call indicators directly as functions
-                # Using keyword arguments based on previous errors
                 ema9_val = EMA(ticker=ticker, data=historical_data, length=9)
                 ema20_val = EMA(ticker=ticker, data=historical_data, length=20)
-                # Assuming VWAP might just need data, maybe ticker too? Start with data.
-                # If VWAP fails, the next error will guide us.
                 vwap_val = VWAP(ticker=ticker, data=historical_data)
 
-                # --- Important Check: What do these functions return? ---
-                # Technical indicators often return a list/series or a dict.
-                # We need the *latest* value. Let's assume they return a list
-                # and the last element is the most recent value.
-                # If they return a dict like {'SPY': [values...]}, adjust accordingly.
-                # Check the type and content if errors occur later.
-                if isinstance(ema9_val, list) and len(ema9_val) > 0:
-                    ema9_val = ema9_val[-1]
-                elif isinstance(ema9_val, dict):
-                     ema9_val = ema9_val.get(ticker, [None])[-1] # Example if dict format {ticker: [vals]}
-                # Add similar checks/extraction logic for ema20_val and vwap_val
-                if isinstance(ema20_val, list) and len(ema20_val) > 0:
-                     ema20_val = ema20_val[-1]
-                elif isinstance(ema20_val, dict):
-                     ema20_val = ema20_val.get(ticker, [None])[-1]
-                if isinstance(vwap_val, list) and len(vwap_val) > 0:
-                     vwap_val = vwap_val[-1]
-                elif isinstance(vwap_val, dict):
-                     vwap_val = vwap_val.get(ticker, [None])[-1]
+                # Extract latest values (assuming list return for now)
+                # Add more robust checks if needed based on actual return types
+                ema9_val = ema9_val[-1] if isinstance(ema9_val, list) and ema9_val else None
+                ema20_val = ema20_val[-1] if isinstance(ema20_val, list) and ema20_val else None
+                vwap_val = vwap_val[-1] if isinstance(vwap_val, list) and vwap_val else None
 
-
-            except Exception as e:
-                log(f"Error calculating/processing indicators for {ticker}: {e}")
-                log(f"Returned types - EMA9: {type(ema9_val)}, EMA20: {type(ema20_val)}, VWAP: {type(vwap_val)}")
-                allocation_dict[ticker] = data["holdings"].get(ticker, 0) # Hold position on error
-                continue
+            # ... (rest of try block, except block, logic)
 
             # Check if indicator values are valid numbers AFTER extraction
             if not all(isinstance(v, (int, float)) for v in [ema9_val, ema20_val, vwap_val]):
-                log(f"Indicator calculation incomplete or invalid after extraction for {ticker}. EMA9: {ema9_val}, EMA20: {ema20_val}, VWAP: {vwap_val}")
-                allocation_dict[ticker] = data["holdings"].get(ticker, 0) # Hold position on error
-                continue
+                 log(f"Indicator calculation incomplete or invalid after extraction for {ticker}. EMA9: {ema9_val}, EMA20: {ema20_val}, VWAP: {vwap_val}")
+                 allocation_dict[ticker] = data["holdings"].get(ticker, 0) # Hold position on error
+                 continue
 
             # Get the most recent closing price
-            current_close = ohlcv[-1]["close"]
+            current_close = ohlcv[-1]["close"] # This assumes ohlcv is a list of dicts
 
-            # --- Define Entry and Exit Conditions ---
-            is_uptrend_condition = current_close > vwap_val and ema9_val > ema20_val
-            is_downtrend_condition = current_close < vwap_val and ema9_val < ema20_val
-            long_pullback = current_close < ema9_val and current_close > ema20_val
-            short_pullback = current_close > ema9_val and current_close < ema20_val
+            # ... (rest of your trading logic: conditions, entry, exit) ...
 
-            # --- Get Current Holdings ---
-            current_holding = data["holdings"].get(ticker, 0)
-            currently_invested = abs(current_holding) > 1e-9
-
-            # --- Logic for Entering Positions ---
-            if not currently_invested:
-                target_stake = 0
-                if is_uptrend_condition and long_pullback:
-                    log(f"LONG ENTRY SIGNAL: {ticker} at {current_close:.2f}")
-                    target_stake = 0.10
-                elif is_downtrend_condition and short_pullback:
-                    log(f"SHORT ENTRY SIGNAL: {ticker} at {current_close:.2f}")
-                    target_stake = -0.10
-                allocation_dict[ticker] = target_stake
-
-            # --- Logic for Exiting Positions ---
-            elif currently_invested:
-                exit_signal = False
-                if current_holding > 0 and current_close < ema20_val: # Long SL
-                    log(f"STOP LOSS (Long): {ticker} exited at {current_close:.2f}. Stop: {ema20_val:.2f}")
-                    exit_signal = True
-                elif current_holding < 0 and current_close > ema20_val: # Short SL
-                    log(f"STOP LOSS (Short): {ticker} exited at {current_close:.2f}. Stop: {ema20_val:.2f}")
-                    exit_signal = True
-
-                if not exit_signal: # Trend Exit Check
-                    if current_holding > 0 and (current_close < vwap_val or ema9_val < ema20_val):
-                           log(f"EXIT LONG (Trend Break): {ticker} at {current_close:.2f}")
-                           exit_signal = True
-                    elif current_holding < 0 and (current_close > vwap_val or ema9_val > ema20_val):
-                           log(f"EXIT SHORT (Trend Break): {ticker} at {current_close:.2f}")
-                           exit_signal = True
-
-                if exit_signal:
-                    allocation_dict[ticker] = 0 # Close position
-                else:
-                    allocation_dict[ticker] = current_holding # Maintain position
-
-            # Ensure allocation is set if no action taken
-            if ticker not in allocation_dict:
-                 allocation_dict[ticker] = data["holdings"].get(ticker, 0)
 
         # Create TargetAllocation object
         final_allocation = {ticker: allocation_dict.get(ticker, 0) for ticker in self.tickers}
