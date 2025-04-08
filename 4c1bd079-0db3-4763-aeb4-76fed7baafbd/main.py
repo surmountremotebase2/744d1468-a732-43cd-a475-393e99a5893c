@@ -12,12 +12,13 @@ class TradingStrategy(Strategy):
         self.indicators = {}
         for ticker in self.tickers:
             self.indicators[ticker] = {
-                "ema9": EMA(9),
-                "ema20": EMA(20),
-                "vwap": VWAP()
+                # Use keyword argument 'length' for clarity and correctness
+                "ema9": EMA(length=9),     # <--- CORRECTED
+                "ema20": EMA(length=20),   # <--- CORRECTED
+                "vwap": VWAP()             # <--- VWAP typically needs no args here
             }
-        # State variable to track active positions per ticker
-        self.invested = {ticker: False for ticker in self.tickers}
+        # State variable (removed as we use data["holdings"])
+        # self.invested = {ticker: False for ticker in self.tickers} # Not needed
 
     @property
     def interval(self):
