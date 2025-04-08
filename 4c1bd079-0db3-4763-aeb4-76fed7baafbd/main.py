@@ -2,6 +2,7 @@
 from surmount.base_class import Strategy, TargetAllocation
 from surmount.technical_indicators import EMA, VWAP
 from surmount.logging import log
+import traceback # Import for detailed error logging
 
 # Define the strategy class
 class TradingStrategy(Strategy):
@@ -12,7 +13,7 @@ class TradingStrategy(Strategy):
     @property
     def interval(self):
         # Use a 5-minute timeframe
-        return "5min" # Corrected interval string
+        return "5min" # Correct interval string
 
     @property
     def assets(self):
@@ -24,51 +25,54 @@ class TradingStrategy(Strategy):
 
     def run(self, data):
         allocation_dict = {}
+        # Get the main OHLCV data structure (list of time steps)
+        ohlcv_list = data.get("ohlcv")
+
+        # Data Sufficiency Check
+        if ohlcv_list is None or len(ohlcv_list) < 50: # Need history for indicators
+            log(f"Not enough historical steps in ohlcv_list (need ~50)")
+            for ticker in self.tickers: allocation_dict[ticker] = 0 # Flatten all positions
+            return TargetAllocation(allocation_dict)
 
         for ticker in self.tickers:
-            # --- Retrieve OHLCV Data ---
-            ohlcv_data_source = data.get("ohlcv")
-            ohlcv = None
-            if isinstance(ohlcv_data_source, dict):
-                ohlcv = ohlcv_data_source.get(ticker)
-            elif isinstance(ohlcv_data_source, list) and len(self.assets) == 1:
-                ohlcv = ohlcv_data_source
-            else:
-                log(f"Warning: Unexpected data structure for ohlcv for {ticker}. Type: {type(ohlcv_data_source)}")
-
-            # --- Data Sufficiency Check ---
-            if ohlcv is None or len(ohlcv) < 50:
-                log(f"Not enough data or failed to retrieve OHLCV for {ticker} (need ~50 bars)")
-                allocation_dict[ticker] = 0
-                continue
-
-            # --- Calculate Indicators & Price ---
-            historical_data = ohlcv
+            # Initialize variables for this ticker
             ema9_val, ema20_val, vwap_val = None, None, None
             current_close = None
 
-            try:
-                # Call indicators directly as functions
-                ema9_raw = EMA(ticker=ticker, data=historical_data, length=9)
-                ema20_raw = EMA(ticker=ticker, data=historical_data, length=20)
-                vwap_raw = VWAP(ticker=ticker, data=historical_data, length=1) # Added length=1
+            # Check if ticker exists in the *latest* data point before processing
+            # This prevents KeyError if a ticker has partial data at the end
+            if ticker not in ohlcv_list[-1]:
+                 log(f"Ticker {ticker} not found in the latest data step: {ohlcv_list[-1]}")
+                 allocation_dict[ticker] = data["holdings"].get(ticker, 0) # Hold position
+                 continue
 
-                # Extract the latest value
+            try:
+                # Pass the entire ohlcv_list (list[dict[ticker->bar]]) to indicators.
+                # Assume they internally extract the series for the specified ticker.
+                ema9_raw = EMA(ticker=ticker, data=ohlcv_list, length=9)
+                ema20_raw = EMA(ticker=ticker, data=ohlcv_list, length=20)
+                vwap_raw = VWAP(ticker=ticker, data=ohlcv_list, length=1) # Using length=1 as placeholder
+
+                # Extract the latest value from indicators
+                # Assumes list return; adjust if needed. Check type if errors persist.
                 ema9_val = ema9_raw[-1] if isinstance(ema9_raw, list) and ema9_raw else ema9_raw if isinstance(ema9_raw, (int,float)) else None
                 ema20_val = ema20_raw[-1] if isinstance(ema20_raw, list) and ema20_raw else ema20_raw if isinstance(ema20_raw, (int,float)) else None
                 vwap_val = vwap_raw[-1] if isinstance(vwap_raw, list) and vwap_raw else vwap_raw if isinstance(vwap_raw, (int,float)) else None
 
-                # Get the most recent closing price using capitalized "Close"
-                current_close = historical_data[-1]["Close"] # <--- CORRECTED KEY ("Close")
+                # Get the most recent closing price using the correct structure
+                # List[-1] -> Dict[ticker] -> Dict["close"] (lowercase based on template)
+                current_close = ohlcv_list[-1][ticker]["close"] # <--- CORRECTED ACCESS & KEY CASE
 
             except Exception as e:
-                log(f"Error during indicator calculation or processing for {ticker}: {e}")
-                allocation_dict[ticker] = data["holdings"].get(ticker, 0)
+                log(f"Error during indicator calculation or data access for {ticker}: {e}")
+                log(f"DEBUG: Exception Type: {type(e)}")
+                log(f"DEBUG: Traceback: {traceback.format_exc()}")
+                allocation_dict[ticker] = data["holdings"].get(ticker, 0) # Hold position on error
                 continue
 
             # --- Validity Check ---
             if not all(isinstance(v, (int, float)) for v in [ema9_val, ema20_val, vwap_val, current_close]):
-                 log(f"Indicator/Price values invalid after calculation/extraction for {ticker}. EMA9: {ema9_val}, EMA20: {ema20_val}, VWAP: {vwap_val}, Close: {current_close}")
+                 log(f"Indicator/Price values invalid after calculation for {ticker}. EMA9: {ema9_val}, EMA20: {ema20_val}, VWAP: {vwap_val}, Close: {current_close}")
                  allocation_dict[ticker] = data["holdings"].get(ticker, 0)
                  continue
 
