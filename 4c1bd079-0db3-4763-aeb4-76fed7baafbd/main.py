@@ -13,7 +13,7 @@ class TradingStrategy(Strategy):
     @property
     def interval(self):
         # Use a 5-minute timeframe
-        return "5min" # Correct interval string
+        return "1min" # Correct interval string
 
     @property
     def assets(self):
